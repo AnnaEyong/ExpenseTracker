@@ -1,4 +1,5 @@
 "use client";
+import { Hamburger, CarTaxiFront, Wifi, ShoppingCart, Receipt } from "lucide-react";
 import React, { useState } from "react";
 
 export default function ExpenseForm({ onAddExpense }) {
@@ -44,7 +45,7 @@ export default function ExpenseForm({ onAddExpense }) {
       </div>
 
       <div>
-        <label className="block text-gray-700 font-medium mb-1">Amount (₦)</label>
+        <label className="block text-gray-700 dark:text-white font-medium mb-1">Amount (XAF)</label>
         <input
           type="number"
           value={amount}
@@ -55,16 +56,17 @@ export default function ExpenseForm({ onAddExpense }) {
       </div>
 
       <div>
-        <label className="block text-gray-700 font-medium mb-1">Category</label>
+        <label className="block text-gray-700 dark:text-white font-medium mb-1">Category</label>
         <select
           value={category}
           onChange={(e) => setCategory(e.target.value)}
-          className="w-full border rounded-lg p-2"
+          className="w-full bg-card border rounded-lg p-2"
         >
           <option>Food</option>
           <option>Transport</option>
           <option>Shopping</option>
           <option>Bills</option>
+          <option>Internet</option>
           <option>Others</option>
         </select>
       </div>

@@ -54,12 +54,12 @@ export default function ReportsPage() {
       return;
     }
 
-    const currentUser = users.find((u) => u.name === loggedInUser);
+    const currentUser = users.find((u) => u.email === loggedInUser);
     setUser(currentUser);
     setExpenses(currentUser?.expenses || []);
   }, [router]);
 
-  // ✅ Filter expenses (by name, category, or date) and date range
+  // Filter expenses (by name, category, or date) and date range
   const filteredExpenses = expenses.filter((e) => {
     const searchLower = search.toLowerCase();
 
@@ -76,7 +76,7 @@ export default function ReportsPage() {
     return matchesSearch && withinRange;
   });
 
-  // ✅ Summary Calculations
+  // Summary Calculations
   const totalSpent = filteredExpenses.reduce(
     (sum, e) => sum + Number(e.amount),
     0
@@ -100,7 +100,7 @@ export default function ReportsPage() {
         ).toFixed(2)
       : 0;
 
-  // ✅ Chart Data
+  // Chart Data
   const trendData = {
     labels: filteredExpenses.map((e) => e.date),
     datasets: [
@@ -131,10 +131,10 @@ export default function ReportsPage() {
     ],
   };
 
-  // ✅ Export CSV
+  // Export CSV
   const handleExportCSV = () => {
     const csvRows = [
-      ["Date", "Name", "Category", "Amount (₦)"],
+      ["Date", "Name", "Category", "Amount (XAF)"],
       ...filteredExpenses.map((e) => [e.date, e.name, e.category, e.amount]),
     ];
     const blob = new Blob([csvRows.map((r) => r.join(",")).join("\n")], {
@@ -143,13 +143,13 @@ export default function ReportsPage() {
     saveAs(blob, "expense_report.csv");
   };
 
-  // ✅ Export PDF (fixed)
+  //  Export PDF (fixed)
   const handleExportPDF = () => {
     const doc = new jsPDF();
     doc.text("Expense Report", 14, 16);
     autoTable(doc, {
       startY: 25,
-      head: [["Date", "Name", "Category", "Amount (₦)"]],
+      head: [["Date", "Name", "Category", "Amount (XAF)"]],
       body: filteredExpenses.map((e) => [
         e.date,
         e.name,
@@ -160,12 +160,12 @@ export default function ReportsPage() {
     doc.save("expense_report.pdf");
   };
 
-  if (!user)
-    return (
-      <div className="flex items-center justify-center h-screen text-gray-600">
-        Loading reports...
-      </div>
-    );
+  // if (!user)
+  //   return (
+  //     <div className="flex items-center justify-center h-screen text-gray-600">
+  //       Loading reports...
+  //     </div>
+  //   );
 
   return (
     <>
@@ -177,20 +177,7 @@ export default function ReportsPage() {
             <h1 className="text-2xl font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-2">
               <BarChart3 className="text-blue-600" /> Reports & Insights
             </h1>
-            <div className="flex gap-3 mt-4 md:mt-0">
-              <button
-                onClick={handleExportCSV}
-                className="px-3 py-2 border rounded-lg flex items-center gap-2 hover:bg-gray-100"
-              >
-                <FileDown size={16} /> Export CSV
-              </button>
-              <button
-                onClick={handleExportPDF}
-                className="px-3 py-2 border rounded-lg flex items-center gap-2 hover:bg-gray-100"
-              >
-                <FileDown size={16} /> Export PDF
-              </button>
-            </div>
+            
           </div>
 
           {/* Filters */}
@@ -263,7 +250,7 @@ export default function ReportsPage() {
                   <th className="p-2 text-left">Date</th>
                   <th className="p-2 text-left">Name</th>
                   <th className="p-2 text-left">Category</th>
-                  <th className="p-2 text-right">Amount (₦)</th>
+                  <th className="p-2 text-right">Amount (XAF)</th>
                 </tr>
               </thead>
               <tbody>
@@ -297,7 +284,7 @@ export default function ReportsPage() {
   );
 }
 
-// ✅ Reusable Summary Card
+// Reusable Summary Card
 function SummaryCard({ icon, label, value }) {
   return (
     <div className="bg-card rounded-xl p-4 flex flex-col items-center gap-2 shadow-[0_8px_30px_rgba(0,0,0,0.1)]">

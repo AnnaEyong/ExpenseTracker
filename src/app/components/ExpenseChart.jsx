@@ -44,7 +44,7 @@ export default function ExpenseChart({ expenses, budget }) {
   }
 
   return (
-    <div className="md:p-4 py-4 rounded-xl w-full dark:bg-[#223955] shadow-[0_8px_30px_rgba(0,0,0,0.05)]">
+    <div className="md:p-4 py-4 rounded-xl w-full shadow-[0_8px_30px_rgba(0,0,0,0.1)] dark:shadow-[0_8px_30px_rgba(0,0,0,0.3)]">
       <h2 className="text-xl font-semibold mb-4 text-center">Expenses Chart</h2>
       {expenses.length === 0 ? (
         <p className="text-gray-500 text-center">No expenses yet</p>
@@ -53,7 +53,7 @@ export default function ExpenseChart({ expenses, budget }) {
           <Pie data={data} options={options} />
         </div>
       )}
-      {budget > 0 && <p className="mt-2 text-center text-gray-500">Monthly budget: {budget} XAF</p>}
+      {budget > 0 && <p className="mt-2 text-center">Monthly budget: {budget} XAF</p>}
     </div>
   )
 }

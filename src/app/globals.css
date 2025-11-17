@@ -94,7 +94,7 @@
 }
 
 .dark {
-  --background: #0d1b2a;        /* dark blue background */
+  --background: #0F172A;        /* dark blue background */
   --foreground: #e0e0e0;        /* light text for contrast */
   --card: #1a2a40;              /* slightly lighter dark blue for cards */
   --card-foreground: #f5f5f5;   /* card text color */
