@@ -10,22 +10,63 @@ export default function Navbar() {
   const router = useRouter();
   const [user, setUser] = useState(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5050";
 
   useEffect(() => {
-    const stored = localStorage.getItem("loggedInUser");
-    if (stored) {
+    const loadUser = async () => {
       try {
-        const parsed = JSON.parse(stored);
-        setUser(parsed);
+        const authData = localStorage.getItem("user");
+        if (!authData) {
+          setUser(null);
+          return;
+        }
+
+        const parsedAuth = JSON.parse(authData);
+        const token = parsedAuth?.token;
+
+        if (!token) {
+          setUser(null);
+          return;
+        }
+
+        const profileResponse = await fetch(`${API_BASE_URL}/user/profile`, {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+
+        if (!profileResponse.ok) {
+          setUser(null);
+          return;
+        }
+
+        const userPayload = await profileResponse.json();
+        const apiUser = userPayload?.data;
+
+        if (!apiUser) {
+          setUser(null);
+          return;
+        }
+
+        setUser({
+          ...apiUser,
+          first_name: apiUser.first_name || apiUser.firstName || "",
+          firstName: apiUser.firstName || apiUser.first_name || "",
+          profile_img: apiUser.profile_img || apiUser.profilePic || "",
+          profilePic: apiUser.profilePic || apiUser.profile_img || "",
+        });
       } catch {
-        const users = JSON.parse(localStorage.getItem("users")) || [];
-        const foundUser = users.find((u) => u.email === stored);
-        if (foundUser) setUser(foundUser);
+        setUser(null);
       }
-    }
+    };
+
+    loadUser();
   }, []);
 
   const handleLogout = () => {
+    setUser(null);
+    localStorage.removeItem("user");
     localStorage.removeItem("loggedInUser");
     router.push("/");
   };
@@ -38,6 +79,9 @@ export default function Navbar() {
     { name: "Reports", path: "/reports" },
     { name: "Profile", path: "/profile" },
   ];
+
+  const displayFirstName = user?.first_name || user?.firstName || "";
+  const displayProfileImg = user?.profile_img || user?.profilePic || "";
 
   return (
     <nav className="fixed top-0 left-0 right-0 bg-background/60 backdrop-blur-md shadow-sm z-50 border-b border-secondary">
@@ -76,7 +120,7 @@ export default function Navbar() {
               <>
                 <div className="hidden sm:flex flex-col items-end">
                   <span className="text-sm font-semibold">
-                    Hi, {user.firstName}👋
+                    Hi, {displayFirstName}👋
                   </span>
                   <span className="text-xs text-gray-500">Welcome back!</span>
                 </div>
@@ -84,14 +128,14 @@ export default function Navbar() {
                   href="/profile"
                   className="w-9 h-9 rounded-full overflow-hidden flex items-center justify-center bg-blue-600 text-white font-semibold text-lg"
                 >
-                  {user.profilePic ? (
+                  {displayProfileImg ? (
                     <img
-                      src={user.profilePic}
+                      src={displayProfileImg}
                       alt="Profile"
                       className="w-full h-full object-cover"
                     />
                   ) : (
-                    getInitial(user.firstName)
+                    getInitial(displayFirstName)
                   )}
                 </Link>
               </>
@@ -165,3 +209,4 @@ export default function Navbar() {
     </nav>
   );
 }
+

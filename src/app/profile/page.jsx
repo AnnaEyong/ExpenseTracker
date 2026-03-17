@@ -7,6 +7,7 @@ import { Pencil, Eye, EyeOff } from "lucide-react"
 
 export default function ProfilePage() {
   const router = useRouter()
+  const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5050"
   const [user, setUser] = useState(null)
   const [formData, setFormData] = useState({})
   const [password, setPassword] = useState("")
@@ -18,30 +19,67 @@ export default function ProfilePage() {
 
   // Load user on mount
   useEffect(() => {
-    let storedUser = localStorage.getItem("loggedInUser")
-    const users = JSON.parse(localStorage.getItem("users")) || []
+    const loadProfile = async () => {
+      try {
+        const authData = localStorage.getItem("user")
+        if (!authData) {
+          router.push("/login")
+          return
+        }
 
-    try {
-      storedUser = JSON.parse(storedUser)
-    } catch {
-      storedUser = { email: storedUser }
+        const parsedAuth = JSON.parse(authData)
+        const token = parsedAuth?.token
+
+        if (!token) {
+          router.push("/login")
+          return
+        }
+
+        const response = await fetch(`${API_BASE_URL}/user/profile`, {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        })
+
+        if (!response.ok) {
+          localStorage.removeItem("user")
+          localStorage.removeItem("loggedInUser")
+          router.push("/login")
+          return
+        }
+
+        const payload = await response.json()
+        const apiUser = payload?.data
+
+        if (!apiUser) {
+          router.push("/login")
+          return
+        }
+
+        const normalizedUser = {
+          ...apiUser,
+          id: apiUser._id || apiUser.id,
+          firstName: apiUser.first_name || apiUser.firstName || "",
+          lastName: apiUser.last_name || apiUser.lastName || "",
+          profilePic: apiUser.profile_img || apiUser.profilePic || "",
+          frequentCategories: apiUser.freq_categories || apiUser.frequentCategories || "",
+          budget: apiUser.budget ?? "",
+          about: apiUser.about || "",
+          address: apiUser.address || "",
+        }
+
+        setUser(normalizedUser)
+        setFormData(normalizedUser)
+        setProfilePicPreview(normalizedUser.profilePic || null)
+        localStorage.setItem("loggedInUser", JSON.stringify(normalizedUser))
+      } catch {
+        router.push("/login")
+      }
     }
 
-    if (!storedUser || !storedUser.email) {
-      router.push("/login")
-      return
-    }
-
-    const currentUser = users.find(u => u.email === storedUser.email)
-    if (!currentUser) {
-      router.push("/login")
-      return
-    }
-
-    setUser(currentUser)
-    setFormData(currentUser)
-    setProfilePicPreview(currentUser.profilePic || null)
-  }, [router])
+    loadProfile()
+  }, [router, API_BASE_URL])
 
   const handleChange = (e) => {
     const { name, value } = e.target
@@ -97,58 +135,138 @@ const handleProfilePic = (e) => {
     reader.readAsDataURL(file)
   }
 
-  // FIXED handleSave
-  const handleSave = (e) => {
+  const handleSave = async (e) => {
     e.preventDefault()
 
-    const users = JSON.parse(localStorage.getItem("users") || "[]")
+    const normalizedPassword = password.trim()
+    const normalizedConfirmPassword = confirmPassword.trim()
+    const shouldUpdatePassword =
+      normalizedPassword.length > 0 &&
+      normalizedConfirmPassword.length > 0 &&
+      normalizedPassword === normalizedConfirmPassword
 
-    const updatedUser = {
-      ...formData,
-      profilePic: profilePicPreview || formData.profilePic,
-      password: password || formData.password,
+    if (
+      normalizedPassword.length > 0 &&
+      normalizedConfirmPassword.length > 0 &&
+      normalizedPassword !== normalizedConfirmPassword
+    ) {
+      toast.error("Passwords do not match")
+      return
     }
 
-    const updatedUsers = users.map(u =>
-      u.email === user.email ? updatedUser : u
-    )
+    const authData = localStorage.getItem("user")
+    const token = authData ? JSON.parse(authData)?.token : null
+    const userId = user?._id || user?.id
 
-    //  Update both user lists
-    localStorage.setItem("users", JSON.stringify(updatedUsers))
-    localStorage.setItem("loggedInUser", JSON.stringify(updatedUser))
-    setUser(updatedUser)
-
-    //  Sync across tabs/pages
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent("userUpdated", { detail: updatedUser }))
+    if (!token || !userId) {
+      router.push("/login")
+      return
     }
 
-    toast.success("Profile updated successfully!")
-    router.push("/dashboard")
+    const budgetValue = formData.budget === "" || formData.budget === null || formData.budget === undefined
+      ? undefined
+      : Number(formData.budget)
+
+    const updatePayload = {
+      ...(formData.firstName ? { first_name: formData.firstName } : {}),
+      ...(formData.lastName ? { last_name: formData.lastName } : {}),
+      ...(formData.email ? { email: formData.email } : {}),
+      ...(formData.phone ? { phone: formData.phone } : {}),
+      ...(formData.frequentCategories ? { freq_categories: formData.frequentCategories } : {}),
+      ...(!Number.isNaN(budgetValue) && budgetValue !== undefined ? { budget: budgetValue } : {}),
+      ...(profilePicPreview || formData.profilePic ? { profile_img: profilePicPreview || formData.profilePic } : {}),
+      ...(shouldUpdatePassword ? { password: normalizedPassword } : {}),
+    }
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/user/update/${userId}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(updatePayload),
+      })
+
+      const payload = await response.json()
+      if (!response.ok) {
+        toast.error(payload?.message || "Failed to update profile")
+        return
+      }
+
+      const updatedApiUser = payload?.data || {}
+      const normalizedUpdatedUser = {
+        ...updatedApiUser,
+        id: updatedApiUser._id || updatedApiUser.id || userId,
+        firstName: updatedApiUser.first_name || updatedApiUser.firstName || formData.firstName || "",
+        lastName: updatedApiUser.last_name || updatedApiUser.lastName || formData.lastName || "",
+        profilePic: updatedApiUser.profile_img || updatedApiUser.profilePic || profilePicPreview || "",
+        frequentCategories: updatedApiUser.freq_categories || updatedApiUser.frequentCategories || formData.frequentCategories || "",
+        budget: updatedApiUser.budget ?? formData.budget ?? "",
+      }
+
+      setUser(normalizedUpdatedUser)
+      setFormData((prev) => ({
+        ...prev,
+        ...normalizedUpdatedUser,
+      }))
+      setPassword("")
+      setConfirmPassword("")
+      localStorage.setItem("loggedInUser", JSON.stringify(normalizedUpdatedUser))
+      toast.success("Profile updated successfully!")
+      router.push("/dashboard")
+    } catch {
+      toast.error("Failed to update profile")
+    }
   }
 
   const handleLogout = () => {
+    localStorage.removeItem("user")
     localStorage.removeItem("loggedInUser")
     router.push("/")
   }
 
-  const handleConfirmDelete = () => {
-    const users = JSON.parse(localStorage.getItem("users")) || []
-    const remainingUsers = users.filter((u) => u.email !== user.email)
-    localStorage.setItem("users", JSON.stringify(remainingUsers))
-    localStorage.removeItem("loggedInUser")
-    setShowDeleteModal(false)
-    toast.success("Account deleted successfully!")
-    router.push("/")
+  const handleConfirmDelete = async () => {
+    try {
+      const authData = localStorage.getItem("user")
+      const token = authData ? JSON.parse(authData)?.token : null
+      const userId = user?._id || user?.id
+
+      if (!token || !userId) {
+        router.push("/login")
+        return
+      }
+
+      const response = await fetch(`${API_BASE_URL}/user/delete/${userId}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      })
+
+      if (!response.ok) {
+        const payload = await response.json()
+        toast.error(payload?.message || "Failed to delete account")
+        return
+      }
+
+      localStorage.removeItem("user")
+      localStorage.removeItem("loggedInUser")
+      setShowDeleteModal(false)
+      toast.success("Account deleted successfully!")
+      router.push("/")
+    } catch {
+      toast.error("Failed to delete account")
+    }
   }
 
-  // if (!user) {
-  //   return (
-  //     <div className="flex items-center justify-center h-screen text-gray-500 dark:text-gray-300">
-  //       Loading profile...
-  //     </div>
-  //   )
-  // }
+  if (!user) {
+    return (
+      <div className="flex items-center justify-center h-screen text-gray-500 dark:text-gray-300">
+        Loading profile...
+      </div>
+    )
+  }
 
   return (
     <>
@@ -172,7 +290,7 @@ const handleProfilePic = (e) => {
                       className="w-full h-full object-cover"
                     />
                   ) : (
-                    (formData.firstName || user.firstName || "U").charAt(0).toUpperCase()
+                    (formData.firstName || user?.firstName || "U").charAt(0).toUpperCase()
                   )}
                 </div>
                 <label
@@ -201,7 +319,6 @@ const handleProfilePic = (e) => {
                 value={formData.firstName || ""}
                 onChange={handleChange}
                 className="w-full border rounded-lg p-2 bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                required
               />
             </div>
 
@@ -214,7 +331,6 @@ const handleProfilePic = (e) => {
                 value={formData.lastName || ""}
                 onChange={handleChange}
                 className="w-full border rounded-lg p-2 bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                required
               />
             </div>
 

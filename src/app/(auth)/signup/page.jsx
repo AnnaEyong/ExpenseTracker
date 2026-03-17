@@ -1,64 +1,57 @@
-"use client"
-import { useState } from "react"
-import { useRouter } from "next/navigation"
-import { Eye, EyeOff } from "lucide-react" // 👈 for show/hide password icons
+"use client";
+
+import { Eye, EyeClosed } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useState } from "react";
 
 export default function SignupPage() {
-  const router = useRouter()
-  const [form, setForm] = useState({
-    firstName: "",
-    lastName: "",
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
+  const DEFAULT_DATA = {
+    first_name: "",
+    last_name: "",
     email: "",
     phone: "",
     password: "",
-    confirmPassword: "",
-  })
-  const [error, setError] = useState("")
-  const [showPassword, setShowPassword] = useState(false)
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
-
-  const handleChange = (e) => {
-    setForm({ ...form, [e.target.name]: e.target.value })
+    confirm_password: "",
   }
+  const router = useRouter();
+  const [formData, setFormData] = useState(DEFAULT_DATA );
+  const [isLoading, setIsLoading] = useState(false);
+  
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setFormData((prev) => ({ ...prev, [name]: value }));
+  };
 
-  const handleSubmit = (e) => {
-    e.preventDefault()
-    setError("")
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setIsLoading(true);
+     console.log("Form Data:", formData);
 
-    // Validation
-    if (!form.firstName || !form.lastName || !form.email || !form.phone || !form.password || !form.confirmPassword) {
-      setError("Please fill in all fields")
-      return
-    }
+     try {
+      const request = await fetch("http://localhost:5050/user/create", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+        },
+        body: JSON.stringify(formData),
+      });
 
-    if (form.password !== form.confirmPassword) {
-      setError("Passwords do not match")
-      return
-    }
+      if (request.ok) {
+        const response = await request.json();
+        alert(response.message || "Signup successful.");
+      }
 
-    // Retrieve existing users
-    let users = JSON.parse(localStorage.getItem("users")) || []
-
-    // Check if user already exists by email
-    const existingUser = users.find((u) => u.email === form.email)
-    if (existingUser) {
-      setError("User already exists. Please login instead.")
-      return
-    }
-
-    // Add new user with empty expenses and default budget
-    const newUser = {
-      ...form,
-      expenses: [],
-      budget: 0,
-    }
-
-    users.push(newUser)
-    localStorage.setItem("users", JSON.stringify(users))
-
-    // Redirect to login
-    // alert("Signup successful! Please login with your credentials.")
-    router.push("/login")
+      setFormData(DEFAULT_DATA );
+      router.push("/login");
+     } catch (error) {
+      alert("Error: ", error.message || "An error occurred during signup. Please try again.");
+     } finally {
+      setIsLoading(false);
+     }
   }
 
   return (
@@ -68,24 +61,24 @@ export default function SignupPage() {
               Expense<span className="text-gray-800 dark:text-gray-200">Tracker</span>
             </span></h2>
 
-        {error && <p className="text-red-500 text-sm text-center mb-3">{error}</p>}
+        {/* {error && <p className="text-red-500 text-sm text-center mb-3">{error}</p>} */}
 
         <form onSubmit={handleSubmit} className="space-y-4">
           {/* First & Last Name */}
           <div className="grid grid-cols-2 gap-3">
             <input
               type="text"
-              name="firstName"
-              placeholder="First Name"
-              value={form.firstName}
+              name="first_name"
+              placeholder="John"
+              value={formData.first_name}
               onChange={handleChange}
               className="w-full border rounded-lg px-3 py-2"
             />
             <input
               type="text"
-              name="lastName"
-              placeholder="Last Name"
-              value={form.lastName}
+              name="last_name"
+              placeholder="Doe"
+              value={formData.last_name}
               onChange={handleChange}
               className="w-full border rounded-lg px-3 py-2"
             />
@@ -95,8 +88,8 @@ export default function SignupPage() {
           <input
             type="email"
             name="email"
-            placeholder="Email"
-            value={form.email}
+            placeholder="you@example.com"
+            value={formData.email}
             onChange={handleChange}
             className="w-full border rounded-lg px-3 py-2"
           />
@@ -105,8 +98,8 @@ export default function SignupPage() {
           <input
             type="tel"
             name="phone"
-            placeholder="Phone Number"
-            value={form.phone}
+            placeholder="+237 6XX XXX XXX"
+            value={formData.phone}
             onChange={handleChange}
             className="w-full border rounded-lg px-3 py-2"
           />
@@ -116,17 +109,17 @@ export default function SignupPage() {
             <input
               type={showPassword ? "text" : "password"}
               name="password"
-              placeholder="Password"
-              value={form.password}
+              placeholder="John@1234"
+              value={formData.password}
               onChange={handleChange}
               className="w-full border rounded-lg px-3 py-2 pr-10"
             />
             <button
               type="button"
-              onClick={() => setShowPassword(!showPassword)}
+              onClick={() => setShowPassword((prev) => !prev)}
               className="absolute right-3 top-2.5 text-gray-500"
             >
-              {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              {showPassword ? <EyeClosed size={18} /> : <Eye size={18} />}
             </button>
           </div>
 
@@ -134,18 +127,18 @@ export default function SignupPage() {
           <div className="relative">
             <input
               type={showConfirmPassword ? "text" : "password"}
-              name="confirmPassword"
+              name="confirm_password"
               placeholder="Confirm Password"
-              value={form.confirmPassword}
+              value={formData.confirm_password}
               onChange={handleChange}
               className="w-full border rounded-lg px-3 py-2 pr-10"
             />
             <button
               type="button"
-              onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+              onClick={() => setShowConfirmPassword((prev) => !prev)}
               className="absolute right-3 top-2.5 text-gray-500"
             >
-              {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              {showConfirmPassword ? <EyeClosed size={18} /> : <Eye size={18} />}
             </button>
           </div>
 
@@ -154,7 +147,7 @@ export default function SignupPage() {
             type="submit"
             className="w-full cursor-pointer bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700"
           >
-            Sign Up
+            {isLoading ? 'Signing up...' : 'Sign Up'}
           </button>
         </form>
 

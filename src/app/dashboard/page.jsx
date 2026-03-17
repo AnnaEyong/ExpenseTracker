@@ -6,56 +6,109 @@ import ExpenseList from "../components/ExpenseList"
 import BudgetSetter from "../components/BudgetSetter"
 import AlertNotification from "../components/AlertNotification"
 import ExpenseChart from "../components/ExpenseChart"
+import WeeklyBreakdown from "../components/WeeklyBreakdown"
+import CategoryBreakDown from "../components/CategoryBreakDown"
 import toast, { Toaster } from "react-hot-toast"
-import { WalletCards, DollarSign, List, PieChart } from "lucide-react"
+import { WalletCards, DollarSign, List } from "lucide-react"
 import Navbar from "../components/navbar/Navbar"
 
 export default function Dashboard() {
   const router = useRouter()
+  const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5050"
   const [user, setUser] = useState(null)
   const [expenses, setExpenses] = useState([])
+  const [categories, setCategories] = useState([])
   const [budget, setBudget] = useState(0)
   const [alertMessage, setAlertMessage] = useState("")
   const [loaded, setLoaded] = useState(false)
   const [filter, setFilter] = useState("")
   const [search, setSearch] = useState("")
 
-  // Load logged-in user, their expenses, and budget
- useEffect(() => {
-  const loggedInUser = localStorage.getItem("loggedInUser");
-  const users = JSON.parse(localStorage.getItem("users")) || [];
+  // Load logged-in user, categories and expenses from backend
+  useEffect(() => {
+    const loadDashboardData = async () => {
+      try {
+        const authData = localStorage.getItem("user")
+        const token = authData ? JSON.parse(authData)?.token : null
 
-  if (!loggedInUser) {
-    router.push("/login");
-    return;
-  }
+        if (!token) {
+          router.push("/login")
+          return
+        }
 
-  let currentUser = null;
+        const profileResponse = await fetch(`${API_BASE_URL}/user/profile`, {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        })
 
-  try {
-    currentUser = JSON.parse(loggedInUser);
-  } catch {
-    // fallback: loggedInUser is just an email string
-    currentUser = users.find((u) => u.email === loggedInUser);
-  }
+        if (!profileResponse.ok) {
+          router.push("/login")
+          return
+        }
 
-  if (!currentUser) {
-    router.push("/login");
-    return;
-  }
+        const profilePayload = await profileResponse.json()
+        const profileUser = profilePayload?.data
+        if (!profileUser) {
+          router.push("/login")
+          return
+        }
 
-  //  Ensure expenses is always an array
-  const safeExpenses = Array.isArray(currentUser.expenses)
-    ? currentUser.expenses
-    : [];
+        const normalizedUser = {
+          ...profileUser,
+          id: profileUser._id || profileUser.id,
+          firstName: profileUser.first_name || "",
+        }
 
-  const safeBudget = Number(currentUser.budget) || 0;
+        const categoriesResponse = await fetch(`${API_BASE_URL}/category/find`)
+        const categoriesPayload = categoriesResponse.ok ? await categoriesResponse.json() : { data: [] }
+        const categoryList = Array.isArray(categoriesPayload?.data) ? categoriesPayload.data : []
+        setCategories(categoryList)
 
-  setUser(currentUser);
-  setExpenses(safeExpenses);
-  setBudget(safeBudget);
-  setLoaded(true);
-}, [router]);
+        const expensesResponse = await fetch(
+          `${API_BASE_URL}/expense/find?user=${normalizedUser.id}`
+        )
+        const expensesPayload = expensesResponse.ok ? await expensesResponse.json() : { data: [] }
+        const expenseList = Array.isArray(expensesPayload?.data) ? expensesPayload.data : []
+
+        const categoryMap = new Map(
+          categoryList.map((cat) => [String(cat._id), { name: cat.name, icon: cat.icon }])
+        )
+        const normalizedExpenses = expenseList.map((exp) => {
+          const categoryId = typeof exp.category === "object" ? exp.category?._id : exp.category
+          const categoryMetaFromExpense =
+            typeof exp.category === "object"
+              ? {
+                  name: exp.category?.name,
+                  icon: exp.category?.icon,
+                }
+              : null
+          const categoryMeta = categoryMetaFromExpense || categoryMap.get(String(categoryId)) || {}
+          const categoryName = categoryMeta.name || "Others"
+
+          return {
+            id: exp._id || exp.id,
+            name: exp.title,
+            amount: Number(exp.amount) || 0,
+            category: categoryName,
+            categoryId: categoryId || null,
+            categoryIcon: categoryMeta.icon || "",
+            date: exp.createdAt || exp.date || new Date().toISOString(),
+          }
+        })
+
+        setUser(normalizedUser)
+        setExpenses(normalizedExpenses)
+        setBudget(Number(profileUser.budget) || 0)
+        setLoaded(true)
+      } catch {
+        router.push("/login")
+      }
+    }
+
+    loadDashboardData()
+  }, [router, API_BASE_URL])
 
   // FIXED — Save user data to both users and loggedInUser
   const saveUserData = (updatedExpenses = expenses, updatedBudget = budget) => {
@@ -88,17 +141,72 @@ export default function Dashboard() {
     router.push("/login")
   }
 
-  // Add expense
-  const handleAddExpense = (expense) => {
-    const updatedExpenses = [...expenses, expense]
-    saveUserData(updatedExpenses, budget)
+  // Add expense (backend)
+  const handleAddExpense = async (expense) => {
+    try {
+      const authData = localStorage.getItem("user")
+      const token = authData ? JSON.parse(authData)?.token : null
+      const userId = user?._id || user?.id
 
-    const total = updatedExpenses.reduce((sum, e) => sum + Number(e.amount), 0)
+      if (!token || !userId) {
+        toast.error("Please login again")
+        router.push("/login")
+        return false
+      }
 
-    if (budget > 0 && total > budget * 0.8 && total <= budget) {
-      toast.warning("⚠ Approaching budget limit!")
-    } else if (budget > 0 && total > budget) {
-      toast.error("🚨 Budget exceeded!")
+      const matchingCategory = categories.find((cat) => cat.name === expense.category)
+      if (!matchingCategory?._id) {
+        toast.error("Selected category is not available")
+        return false
+      }
+
+      const payload = {
+        title: expense.name,
+        amount: Number(expense.amount),
+        category: matchingCategory._id,
+        user: userId,
+      }
+
+      const response = await fetch(`${API_BASE_URL}/expense/create`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(payload),
+      })
+
+      const body = await response.json()
+      if (!response.ok) {
+        toast.error(body?.message || "Failed to add expense")
+        return false
+      }
+
+      const createdExpense = body?.data || {}
+      const newExpense = {
+        id: createdExpense._id || createdExpense.id,
+        name: createdExpense.title || expense.name,
+        amount: Number(createdExpense.amount || expense.amount) || 0,
+        category: expense.category,
+        categoryId: createdExpense.category || matchingCategory._id,
+        categoryIcon: matchingCategory.icon || "",
+        date: createdExpense.createdAt || new Date().toISOString(),
+      }
+
+      const updatedExpenses = [...expenses, newExpense]
+      setExpenses(updatedExpenses)
+      const total = updatedExpenses.reduce((sum, e) => sum + Number(e.amount), 0)
+
+      if (budget > 0 && total > budget * 0.8 && total <= budget) {
+        toast.warning("⚠ Approaching budget limit!")
+      } else if (budget > 0 && total > budget) {
+        toast.error("🚨 Budget exceeded!")
+      }
+
+      return true
+    } catch {
+      toast.error("Failed to add expense")
+      return false
     }
   }
 
@@ -147,23 +255,6 @@ export default function Dashboard() {
   const totalExpenses = expenses.reduce((sum, e) => sum + Number(e.amount), 0)
   const remainingBudget = budget - totalExpenses
   const numExpenses = expenses.length
-
-  const categoryBreakdown = expenses.reduce((acc, e) => {
-    if (!acc[e.category]) acc[e.category] = 0
-    acc[e.category] += Number(e.amount)
-    return acc
-  }, {})
-
-  const dailyBreakdown = expenses.reduce((acc, e) => {
-    const dateKey = e.date || new Date().toISOString().split("T")[0]
-    if (!acc[dateKey]) acc[dateKey] = 0
-    acc[dateKey] += Number(e.amount)
-    return acc
-  }, {})
-
-  const sortedDailyBreakdown = Object.entries(dailyBreakdown).sort(
-    ([a], [b]) => new Date(a) - new Date(b)
-  )
 
   // if (!loaded) {
   //   return (
@@ -218,7 +309,10 @@ export default function Dashboard() {
             {alertMessage && <AlertNotification message={alertMessage}/>}
           </div>
 
-          <ExpenseForm onAddExpense={handleAddExpense} />
+          <ExpenseForm
+            onAddExpense={handleAddExpense}
+            categories={categories}
+          />
 
           {/* Search + Filter (Desktop) */}
           <div className="hidden md:flex flex-row gap-4 mb-4">
@@ -247,36 +341,10 @@ export default function Dashboard() {
             {/* Breakdown */}
             <div className='grid grid-cols-1 gap-6 rounded-xl shadow-[0_8px_30px_rgba(0,0,0,0.1)] dark:shadow-[0_8px_30px_rgba(0,0,0,0.3)]'>
               {/* Category Breakdown */}
-              <div className="rounded-xl p-4">
-                <h3 className="font-semibold mb-2 flex items-center gap-2">
-                  <PieChart className="w-5 h-5" /> Category Breakdown
-                </h3>
-                <ul className="text-sm">
-                  {Object.entries(categoryBreakdown).map(([cat, amt]) => (
-                    <li key={cat} className="flex justify-between border-b py-1">
-                      <span>{cat}</span>
-                      <span className="font-semibold">{amt} XAF</span>
-                    </li>
-                  ))}
-                  {Object.keys(categoryBreakdown).length === 0 && <li>No expenses yet</li>}
-                </ul>
-              </div>
+              <CategoryBreakDown expenses={expenses} categories={categories} />
 
-              {/* Daily Breakdown */}
-              <div className="rounded-xl p-4">
-                <h3 className="font-semibold mb-2 flex items-center gap-2">
-                  <List className="w-5 h-5" /> Weekly Breakdown
-                </h3>
-                <ul className="text-sm">
-                  {sortedDailyBreakdown.map(([date, amt]) => (
-                    <li key={date} className="flex justify-between border-b py-1">
-                      <span>{date}</span>
-                      <span>{amt} XAF</span>
-                    </li>
-                  ))}
-                  {sortedDailyBreakdown.length === 0 && <li>No expenses yet</li>}
-                </ul>
-              </div>
+              {/* Weekly Breakdown */}
+              <WeeklyBreakdown expenses={expenses} />
 
               {/* Search + Filter (Mobile) */}
               <div className="flex flex-col md:hidden gap-4 mb-4">
@@ -307,6 +375,7 @@ export default function Dashboard() {
           {/* Expense List */}
           <ExpenseList
             expenses={filteredExpenses}
+            categories={categories}
             onDeleteExpense={(newArray) => {
               saveUserData(newArray, budget)
             }}

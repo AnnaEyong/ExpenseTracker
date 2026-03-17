@@ -1,296 +1,284 @@
 "use client";
-import { useEffect, useState } from "react";
+
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import MetricCard from "../components/MetricCard";
 import Navbar from "../components/navbar/Navbar";
-import {
-  PieChart,
-  BarChart3,
-  CalendarRange,
-  FileDown,
-  DollarSign,
-  List,
-} from "lucide-react";
-import { saveAs } from "file-saver";
-import { jsPDF } from "jspdf";
-import autoTable from "jspdf-autotable";
-import {
-  Chart as ChartJS,
-  ArcElement,
-  Tooltip,
-  Legend,
-  CategoryScale,
-  LinearScale,
-  BarElement,
-  LineElement,
-  PointElement,
-} from "chart.js";
-import { Pie, Line } from "react-chartjs-2";
+import BarChart from "../components/BarChart";
 
-ChartJS.register(
-  ArcElement,
-  Tooltip,
-  Legend,
-  CategoryScale,
-  LinearScale,
-  BarElement,
-  LineElement,
-  PointElement
-);
+const ChartPlaceholder = ({ title, data, type }) => {
+  let content;
 
-export default function ReportsPage() {
+  if (type === "line" && data) {
+    const latestValue = data.data.length ? data.data[data.data.length - 1] : 0;
+    content = (
+      <div className="p-4  text-sm text-gray-400">
+        <p>
+          Trend points: {data.labels.length} (Latest cumulative expense: {Math.round(latestValue).toLocaleString()} XAF)
+        </p>
+        <div className="w-full h-40 bg-gray-100 rounded-lg flex items-center justify-center">
+          Expense Trend Snapshot
+        </div>
+      </div>
+    );
+  } else if (type === "donut" && data) {
+    const total = data.reduce((sum, item) => sum + item.value, 0);
+    content = (
+      <div className="p-4 text-sm h-53">
+        <p className="text-gray-400">Total Expenses: {total.toLocaleString()} XAF</p>
+        <ul className="mt-2 space-y-1">
+          {data.map((item) => (
+            <li key={item.name} className="flex items-center justify-between">
+              <span className="flex items-center">
+                <span className="inline-block w-2 h-2 rounded-full mr-2" style={{ backgroundColor: item.color || "#9CA3AF" }}></span>
+                {item.name}
+              </span>
+              <span className="font-semibold">{item.value.toLocaleString()} XAF</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-6 rounded-xl shadow-lg">
+      <h3 className="text-lg font-semibold text-gray-700 dark:text-white">{title}</h3>
+      {content}
+    </div>
+  );
+};
+
+export default function AnalyticsDashboard() {
   const router = useRouter();
+  const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5050";
+
   const [user, setUser] = useState(null);
+  const [budget, setBudget] = useState(0);
   const [expenses, setExpenses] = useState([]);
-  const [search, setSearch] = useState("");
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
+  const [categories, setCategories] = useState([]);
 
   useEffect(() => {
-    const loggedInUser = localStorage.getItem("loggedInUser");
-    const users = JSON.parse(localStorage.getItem("users")) || [];
+    const loadAnalyticsData = async () => {
+      try {
+        const authData = localStorage.getItem("user");
+        const token = authData ? JSON.parse(authData)?.token : null;
 
-    if (!loggedInUser) {
-      router.push("/login");
-      return;
-    }
+        if (!token) {
+          router.push("/login");
+          return;
+        }
 
-    const currentUser = users.find((u) => u.email === loggedInUser);
-    setUser(currentUser);
-    setExpenses(currentUser?.expenses || []);
-  }, [router]);
+        const profileResponse = await fetch(`${API_BASE_URL}/user/profile`, {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
 
-  // Filter expenses (by name, category, or date) and date range
-  const filteredExpenses = expenses.filter((e) => {
-    const searchLower = search.toLowerCase();
+        if (!profileResponse.ok) {
+          router.push("/login");
+          return;
+        }
 
-    const matchesSearch =
-      e.name.toLowerCase().includes(searchLower) ||
-      e.category.toLowerCase().includes(searchLower) ||
-      (e.date && e.date.toLowerCase().includes(searchLower));
+        const profilePayload = await profileResponse.json();
+        const profileUser = profilePayload?.data;
 
-    const expenseDate = new Date(e.date);
-    const withinRange =
-      (!startDate || expenseDate >= new Date(startDate)) &&
-      (!endDate || expenseDate <= new Date(endDate));
+        if (!profileUser) {
+          router.push("/login");
+          return;
+        }
 
-    return matchesSearch && withinRange;
+        const normalizedUser = {
+          ...profileUser,
+          id: profileUser._id || profileUser.id,
+          firstName: profileUser.first_name || "",
+        };
+
+        const categoriesResponse = await fetch(`${API_BASE_URL}/category/find`);
+        const categoriesPayload = categoriesResponse.ok ? await categoriesResponse.json() : { data: [] };
+        const categoryList = Array.isArray(categoriesPayload?.data) ? categoriesPayload.data : [];
+
+        const expensesResponse = await fetch(`${API_BASE_URL}/expense/find?user=${normalizedUser.id}`);
+        const expensesPayload = expensesResponse.ok ? await expensesResponse.json() : { data: [] };
+        const expenseList = Array.isArray(expensesPayload?.data) ? expensesPayload.data : [];
+
+        const categoryMap = new Map(categoryList.map((cat) => [String(cat._id), { name: cat.name, color: cat.color }]));
+        const normalizedExpenses = expenseList.map((expenseItem) => {
+          const categoryId = typeof expenseItem.category === "object" ? expenseItem.category?._id : expenseItem.category;
+          const categoryMeta =
+            (typeof expenseItem.category === "object" && expenseItem.category
+              ? { name: expenseItem.category.name, color: expenseItem.category.color }
+              : null) || categoryMap.get(String(categoryId)) || { name: "Others", color: "#9CA3AF" };
+
+          return {
+            id: expenseItem._id || expenseItem.id,
+            amount: Number(expenseItem.amount) || 0,
+            category: categoryMeta.name,
+            categoryColor: categoryMeta.color || "#9CA3AF",
+            date: expenseItem.createdAt || expenseItem.date || new Date().toISOString(),
+          };
+        });
+
+        setUser(normalizedUser);
+        setBudget(Number(profileUser.budget) || 0);
+        setCategories(categoryList);
+        setExpenses(normalizedExpenses);
+      } catch {
+        router.push("/login");
+      }
+    };
+
+    loadAnalyticsData();
+  }, [router, API_BASE_URL]);
+
+  const now = new Date();
+  const currentMonth = now.getMonth();
+  const currentYear = now.getFullYear();
+  const previousMonthDate = new Date(currentYear, currentMonth - 1, 1);
+  const previousMonth = previousMonthDate.getMonth();
+  const previousYear = previousMonthDate.getFullYear();
+
+  const currentMonthExpenses = expenses.filter((expenseItem) => {
+    const date = new Date(expenseItem.date);
+    return date.getMonth() === currentMonth && date.getFullYear() === currentYear;
   });
 
-  // Summary Calculations
-  const totalSpent = filteredExpenses.reduce(
-    (sum, e) => sum + Number(e.amount),
-    0
-  );
-  const numTransactions = filteredExpenses.length;
+  const previousMonthExpenses = expenses.filter((expenseItem) => {
+    const date = new Date(expenseItem.date);
+    return date.getMonth() === previousMonth && date.getFullYear() === previousYear;
+  });
 
-  const categoryTotals = filteredExpenses.reduce((acc, e) => {
-    if (!acc[e.category]) acc[e.category] = 0;
-    acc[e.category] += Number(e.amount);
-    return acc;
-  }, {});
+  const totalExpenses = expenses.reduce((sum, expenseItem) => sum + expenseItem.amount, 0);
+  const currentMonthTotal = currentMonthExpenses.reduce((sum, expenseItem) => sum + expenseItem.amount, 0);
+  const previousMonthTotal = previousMonthExpenses.reduce((sum, expenseItem) => sum + expenseItem.amount, 0);
+  const remainingBalance = budget - totalExpenses;
 
-  const topCategory =
-    Object.entries(categoryTotals).sort((a, b) => b[1] - a[1])[0]?.[0] || "N/A";
-
-  const avgDaily =
-    numTransactions > 0
-      ? (
-          totalSpent /
-          new Set(filteredExpenses.map((e) => e.date)).size
-        ).toFixed(2)
+  const monthDeltaPercent = previousMonthTotal
+    ? Number((((currentMonthTotal - previousMonthTotal) / previousMonthTotal) * 100).toFixed(1))
+    : currentMonthTotal > 0
+      ? 100
       : 0;
 
-  // Chart Data
-  const trendData = {
-    labels: filteredExpenses.map((e) => e.date),
-    datasets: [
-      {
-        label: "Daily Spending (₦)",
-        data: filteredExpenses.map((e) => e.amount),
-        borderColor: "rgba(59,130,246,1)",
-        backgroundColor: "rgba(59,130,246,0.2)",
-        tension: 0.3,
-      },
-    ],
-  };
+  const metricCards = [
+    {
+      title: "Total balance",
+      value: remainingBalance,
+      changePercent: Math.abs(monthDeltaPercent),
+      changeValue: expenses.length,
+      description: "Balance after all recorded expenses",
+      isPositive: remainingBalance >= 0,
+    },
+    {
+      title: "Budget",
+      value: budget,
+      changePercent: 0,
+      changeValue: currentMonthExpenses.length,
+      description: "Current configured budget",
+      isPositive: true,
+    },
+    {
+      title: "Expense",
+      value: totalExpenses,
+      changePercent: Math.abs(monthDeltaPercent),
+      changeValue: currentMonthExpenses.length,
+      description: "Total spending across all time",
+      isPositive: false,
+    },
+  ];
 
-  const categoryData = {
-    labels: Object.keys(categoryTotals),
-    datasets: [
-      {
-        data: Object.values(categoryTotals),
-        backgroundColor: [
-          "#3b82f6",
-          "#10b981",
-          "#f59e0b",
-          "#ef4444",
-          "#8b5cf6",
-          "#ec4899",
-        ],
-      },
-    ],
-  };
+  const lineChartData = useMemo(() => {
+    const sorted = [...expenses]
+      .filter((expenseItem) => expenseItem.date)
+      .sort((firstItem, secondItem) => new Date(firstItem.date) - new Date(secondItem.date));
 
-  // Export CSV
-  const handleExportCSV = () => {
-    const csvRows = [
-      ["Date", "Name", "Category", "Amount (XAF)"],
-      ...filteredExpenses.map((e) => [e.date, e.name, e.category, e.amount]),
-    ];
-    const blob = new Blob([csvRows.map((r) => r.join(",")).join("\n")], {
-      type: "text/csv;charset=utf-8;",
+    let cumulative = 0;
+    const labels = [];
+    const data = [];
+
+    sorted.forEach((expenseItem) => {
+      cumulative += expenseItem.amount;
+      const date = new Date(expenseItem.date);
+      labels.push(`${String(date.getDate()).padStart(2, "0")}/${String(date.getMonth() + 1).padStart(2, "0")}`);
+      data.push(cumulative);
     });
-    saveAs(blob, "expense_report.csv");
-  };
 
-  //  Export PDF (fixed)
-  const handleExportPDF = () => {
-    const doc = new jsPDF();
-    doc.text("Expense Report", 14, 16);
-    autoTable(doc, {
-      startY: 25,
-      head: [["Date", "Name", "Category", "Amount (XAF)"]],
-      body: filteredExpenses.map((e) => [
-        e.date,
-        e.name,
-        e.category,
-        e.amount,
-      ]),
+    return { labels, data };
+  }, [expenses]);
+
+  const donutChartData = useMemo(() => {
+    const bucket = {};
+    expenses.forEach((expenseItem) => {
+      if (!bucket[expenseItem.category]) {
+        bucket[expenseItem.category] = { value: 0, color: expenseItem.categoryColor || "#9CA3AF" };
+      }
+      bucket[expenseItem.category].value += expenseItem.amount;
     });
-    doc.save("expense_report.pdf");
-  };
 
-  // if (!user)
-  //   return (
-  //     <div className="flex items-center justify-center h-screen text-gray-600">
-  //       Loading reports...
-  //     </div>
-  //   );
+    return Object.entries(bucket).map(([name, value]) => ({ name, ...value }));
+  }, [expenses]);
+
+  const barChartData = useMemo(() => {
+    const points = [];
+    for (let offset = 6; offset >= 0; offset -= 1) {
+      const date = new Date(currentYear, currentMonth - offset, 1);
+      const month = date.toLocaleString("en-US", { month: "short" });
+      const monthIndex = date.getMonth();
+      const year = date.getFullYear();
+
+      const monthExpense = expenses
+        .filter((expenseItem) => {
+          const expenseDate = new Date(expenseItem.date);
+          return expenseDate.getMonth() === monthIndex && expenseDate.getFullYear() === year;
+        })
+        .reduce((sum, expenseItem) => sum + expenseItem.amount, 0);
+
+      points.push({
+        month,
+        budget,
+        expense: monthExpense,
+      });
+    }
+    return points;
+  }, [expenses, budget, currentMonth, currentYear]);
 
   return (
     <>
       <Navbar user={user} />
-      <div className="min-h-screen py-10 px-3 md:px-18 lg:px-20 xl:px-40 pt-20">
-        <div className="max-w-6xl mx-auto space-y-10">
-          {/* Header */}
-          <div className="flex flex-col md:flex-row justify-between items-center mb-6">
-            <h1 className="text-2xl font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-2">
-              <BarChart3 className="text-blue-600" /> Reports & Insights
-            </h1>
-            
-          </div>
-
-          {/* Filters */}
-          <div className="grid md:grid-cols-4 gap-4">
-            <input
-              type="date"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-              className="border rounded-lg p-2"
-            />
-            <input
-              type="date"
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-              className="border rounded-lg p-2"
-            />
-            <input
-              type="text"
-              placeholder="Search name, category, or date"
-              className="border rounded-lg p-2 md:col-span-2"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-          </div>
-
-          {/* Summary Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
-            <SummaryCard
-              icon={<DollarSign />}
-              label="Overall Amt Spent"
-              value={`₦${totalSpent}`}
-            />
-            <SummaryCard
-              icon={<List />}
-              label="Overall Transactions"
-              value={numTransactions}
-            />
-            <SummaryCard
-              icon={<PieChart />}
-              label="Top Category"
-              value={topCategory}
-            />
-            <SummaryCard
-              icon={<CalendarRange />}
-              label="Avg Daily Spend"
-              value={`₦${avgDaily}`}
-            />
-          </div>
-
-          {/* Charts */}
-          <div className="grid md:grid-cols-2 gap-8 mt-6">
-            <div className="bg-card p-4 flex flex-col items-center rounded-xl shadow-[0_8px_30px_rgba(0,0,0,0.1)]">
-              <h3 className="font-semibold text-lg mb-2">Spending Trend</h3>
-              <Line data={trendData} />
+      <main className="mt-5 max-w-5xl mx-auto">
+        <div className="px-4 py-20">
+          <div className="flex items-start justify-between mb-8">
+            <div>
+              <h1 className="text-3xl font-bold">Analytics</h1>
+              <p className="text-gray-500 mt-1">Detailed overview of your financial situation</p>
             </div>
-            <div className="bg-card p-4 rounded-xl flex flex-col items-center shadow-[0_8px_30px_rgba(0,0,0,0.1)]">
-              <h3 className="font-semibold text-lg mb-2">Category Breakdown</h3>
-              <div className="border-2 w-full h-64 flex justify-center">
-                <Pie data={categoryData} />
+            <div className="flex space-x-4">
+              <select className="p-2 border rounded-lg text-sm shadow bg-background" defaultValue="This month">
+                <option>This month</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="flex space-x-6 mb-8">
+            {metricCards.map((card) => (
+              <MetricCard key={card.title} {...card} />
+            ))}
+          </div>
+
+          <div className="bg-card rounded-xl p-6 space-y-6">
+            <div className="grid grid-cols-3 gap-6 mb-8">
+              <div className="col-span-2 h-full">
+                <ChartPlaceholder title="Total expense trend" data={lineChartData} type="line" />
+              </div>
+              <div className="col-span-1 h-full">
+                <ChartPlaceholder title="Category statistics" data={donutChartData} type="donut" />
               </div>
             </div>
-          </div>
 
-          {/* Expense Table */}
-          <div className="bg-card p-4 rounded-xl shadow-[0_8px_30px_rgba(0,0,0,0.1)] mt-8 overflow-x-auto">
-            <h3 className="font-semibold mb-4">Expense History</h3>
-            <table className="w-full text-sm border-collapse">
-              <thead className="bg-gray-100 dark:bg-[#223955]">
-                <tr>
-                  <th className="p-2 text-left">Date</th>
-                  <th className="p-2 text-left">Name</th>
-                  <th className="p-2 text-left">Category</th>
-                  <th className="p-2 text-right">Amount (XAF)</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredExpenses.map((e, i) => (
-                  <tr
-                    key={i}
-                    className="border-b dark:hover:bg-[#223955] hover:bg-gray-50"
-                  >
-                    <td className="p-2">{e.date}</td>
-                    <td className="p-2">{e.name}</td>
-                    <td className="p-2">{e.category}</td>
-                    <td className="p-2 text-right">{e.amount}</td>
-                  </tr>
-                ))}
-                {filteredExpenses.length === 0 && (
-                  <tr>
-                    <td
-                      colSpan="4"
-                      className="text-center text-gray-500 py-3"
-                    >
-                      No expenses found for this filter
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+            <BarChart dataPoints={barChartData} />
           </div>
         </div>
-      </div>
+      </main>
     </>
-  );
-}
-
-// Reusable Summary Card
-function SummaryCard({ icon, label, value }) {
-  return (
-    <div className="bg-card rounded-xl p-4 flex flex-col items-center gap-2 shadow-[0_8px_30px_rgba(0,0,0,0.1)]">
-      <div className="text-blue-600">{icon}</div>
-      <p className="text-sm text-gray-500">{label}</p>
-      <p className="font-semibold">{value}</p>
-    </div>
   );
 }

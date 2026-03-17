@@ -1,13 +1,30 @@
 "use client";
-import { Hamburger, CarTaxiFront, Wifi, ShoppingCart, Receipt } from "lucide-react";
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 
-export default function ExpenseForm({ onAddExpense }) {
+export default function ExpenseForm({ onAddExpense, categories = [] }) {
+  const categoryOptions = categories.length
+    ? categories
+    : [
+        { name: "Food", icon: "🍽️" },
+        { name: "Transport", icon: "🚌" },
+        { name: "Shopping", icon: "🛍️" },
+        { name: "Bills", icon: "🧾" },
+        { name: "Internet", icon: "🌐" },
+        { name: "Others", icon: "📦" },
+      ];
   const [name, setName] = useState("");
   const [amount, setAmount] = useState("");
-  const [category, setCategory] = useState("Food");
+  const [category, setCategory] = useState(categoryOptions[0]?.name || "Food");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSubmit = (e) => {
+  useEffect(() => {
+    if (!categoryOptions.length) return;
+    if (!categoryOptions.some((cat) => cat.name === category)) {
+      setCategory(categoryOptions[0].name);
+    }
+  }, [categoryOptions, category]);
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
 
     if (!name || !amount) {
@@ -22,10 +39,17 @@ export default function ExpenseForm({ onAddExpense }) {
       date: new Date().toLocaleDateString(),
     };
 
-    onAddExpense(newExpense);
-    setName("");
-    setAmount("");
-    setCategory("Food");
+    try {
+      setIsSubmitting(true);
+      const success = await onAddExpense(newExpense);
+      if (!success) return;
+
+      setName("");
+      setAmount("");
+      setCategory(categoryOptions[0]?.name || "Food");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -62,20 +86,20 @@ export default function ExpenseForm({ onAddExpense }) {
           onChange={(e) => setCategory(e.target.value)}
           className="w-full bg-card border rounded-lg p-2"
         >
-          <option>Food</option>
-          <option>Transport</option>
-          <option>Shopping</option>
-          <option>Bills</option>
-          <option>Internet</option>
-          <option>Others</option>
+          {categoryOptions.map((cat) => (
+            <option key={cat._id || cat.name} value={cat.name}>
+              {cat.icon ? `${cat.icon} ${cat.name}` : cat.name}
+            </option>
+          ))}
         </select>
       </div>
 
       <button
         type="submit"
+        disabled={isSubmitting}
         className="bg-blue-600 cursor-pointer text-white py-2 rounded-lg hover:bg-blue-700 transition"
       >
-        Add Expense
+        {isSubmitting ? "Adding..." : "Add Expense"}
       </button>
     </form>
   );
